@@ -12,6 +12,10 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+  # Cada cambio al vigía se prueba solo: consulta el estado del VPS (prueba el token) sin tocar nada.
+  push:
+    branches: [main]
+    paths: [".github/workflows/vigia.yml"]
 
 permissions:
   contents: read
@@ -48,10 +52,10 @@ jobs:
           done
           echo "responde=no" >> "$GITHUB_OUTPUT"
 
-      # A mano (workflow_dispatch) y en la consulta diaria se mira siempre: prueba que el token anda.
+      # A mano, al cambiar el vigía y en la consulta diaria se mira siempre: prueba que el token anda.
       - name: Estado del VPS en Hostinger
         id: vps
-        if: steps.sitio.outputs.responde == 'no' || steps.sitio.outputs.diaria == 'si' || github.event_name == 'workflow_dispatch'
+        if: steps.sitio.outputs.responde == 'no' || steps.sitio.outputs.diaria == 'si' || github.event_name != 'schedule'
         env:
           TOKEN: ${{ secrets.MONITOREO_AONI }}
         run: |
