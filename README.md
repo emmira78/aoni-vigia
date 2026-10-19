@@ -19,7 +19,7 @@ Si el VPS figura encendido o suspendido, no toca nada: ahí el problema es otro,
 Un secreto del repositorio llamado `HOSTINGER_API_TOKEN`, con un token de la API de Hostinger (hPanel → API).
 
 - Los secretos van cifrados y no aparecen nunca en el código ni en los registros.
-- Si el token vence, la corrida falla y GitHub manda un correo.
+- Una vez por día, a las 9 de Argentina, el vigía consulta el estado del VPS aunque el sitio ande. Si el token venció o se borró, esa corrida falla y GitHub manda un correo ese mismo día.
 
 ## Probarlo
 

@@ -33,6 +33,9 @@ jobs:
       - name: ¿Responde el sitio?
         id: sitio
         run: |
+          # Una vez por día (12:00 UTC, las 9 de Argentina) se consulta el estado del VPS aunque
+          # el sitio ande: si el token venció, la corrida falla y GitHub avisa ese mismo día.
+          if [ "$(date -u +%H)" = "12" ] && [ "$(date -u +%M)" -lt 5 ]; then echo "diaria=si" >> "$GITHUB_OUTPUT"; fi
           for intento in 1 2 3; do
             codigo=$(curl -s -o /dev/null -m 20 -w '%{http_code}' "$SITIO" || true)
             if [ "$codigo" = "200" ]; then
@@ -45,10 +48,10 @@ jobs:
           done
           echo "responde=no" >> "$GITHUB_OUTPUT"
 
-      # A mano (workflow_dispatch) se mira siempre: sirve para probar que el token anda.
+      # A mano (workflow_dispatch) y en la consulta diaria se mira siempre: prueba que el token anda.
       - name: Estado del VPS en Hostinger
         id: vps
-        if: steps.sitio.outputs.responde == 'no' || github.event_name == 'workflow_dispatch'
+        if: steps.sitio.outputs.responde == 'no' || steps.sitio.outputs.diaria == 'si' || github.event_name == 'workflow_dispatch'
         env:
           TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
         run: |
