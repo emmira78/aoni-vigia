@@ -1,0 +1,94 @@
+name: Vigía del VPS de Aoni Teema
+
+# Si Hostinger apaga el VPS y no lo vuelve a encender (pasó el 16 y el 17/10/2026,
+# en su mantenimiento de emergencia: la web quedó caída 14 horas de noche), esto lo
+# enciende solo. Cada 5 minutos mira si aoniteema.com responde; si no, le pregunta a
+# Hostinger cómo está el VPS, y SOLO si está «stopped» lo enciende.
+#
+# No reinicia un VPS encendido ni toca uno suspendido: ahí el problema es otro y lo
+# tiene que mirar una persona.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write # para mantener vivo el horario (último paso)
+
+concurrency:
+  group: vigia
+  cancel-in-progress: false
+
+jobs:
+  vigia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SITIO: https://aoniteema.com/
+      VPS_ID: "1932354"
+      API: https://developers.hostinger.com/api/vps/v1/virtual-machines
+    steps:
+      - name: ¿Responde el sitio?
+        id: sitio
+        run: |
+          for intento in 1 2 3; do
+            codigo=$(curl -s -o /dev/null -m 20 -w '%{http_code}' "$SITIO" || true)
+            if [ "$codigo" = "200" ]; then
+              echo "responde=si" >> "$GITHUB_OUTPUT"
+              echo "El sitio responde (200)."
+              exit 0
+            fi
+            echo "Intento $intento: respondió «$codigo»."
+            [ "$intento" -lt 3 ] && sleep 20
+          done
+          echo "responde=no" >> "$GITHUB_OUTPUT"
+
+      # A mano (workflow_dispatch) se mira siempre: sirve para probar que el token anda.
+      - name: Estado del VPS en Hostinger
+        id: vps
+        if: steps.sitio.outputs.responde == 'no' || github.event_name == 'workflow_dispatch'
+        env:
+          TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Falta el secreto HOSTINGER_API_TOKEN en este repositorio."
+            exit 1
+          fi
+          respuesta=$(curl -sf -m 30 -H "Authorization: Bearer $TOKEN" "$API/$VPS_ID") || {
+            echo "::error::Hostinger no contestó el estado del VPS (¿el token venció o se cargó mal?)."
+            exit 1
+          }
+          estado=$(echo "$respuesta" | jq -r '.state')
+          echo "estado=$estado" >> "$GITHUB_OUTPUT"
+          echo "El VPS está: $estado"
+
+      - name: Encenderlo si Hostinger lo dejó apagado
+        if: steps.sitio.outputs.responde == 'no' && steps.vps.outputs.estado == 'stopped'
+        env:
+          TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+        run: |
+          curl -sf -m 30 -X POST -H "Authorization: Bearer $TOKEN" "$API/$VPS_ID/start" > /dev/null || {
+            echo "::error::El VPS está apagado y Hostinger no aceptó encenderlo."
+            exit 1
+          }
+          # Falla a propósito: así GitHub manda un correo y queda a la vista que pasó.
+          echo "::error::El VPS estaba apagado y se pidió encenderlo. La web vuelve en un par de minutos."
+          exit 1
+
+      - name: El sitio no responde, pero el VPS no está apagado
+        if: steps.sitio.outputs.responde == 'no' && steps.vps.outputs.estado != 'stopped' && steps.vps.outputs.estado != ''
+        run: |
+          echo "::warning::El sitio no responde y el VPS está «${{ steps.vps.outputs.estado }}»: no se toca nada (puede ser un despliegue en curso o un problema adentro)."
+
+      # GitHub apaga los horarios de un repositorio sin cambios en 60 días. Una vez por
+      # día se vuelve a habilitar el horario por la API, que reinicia esa cuenta.
+      - name: Mantener vivo el horario
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(date -u +%H)" = "12" ] && [ "$(date -u +%M)" -lt 5 ]; then
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/vigia.yml/enable" && echo "Horario renovado."
+          fi
