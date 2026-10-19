@@ -53,10 +53,10 @@ jobs:
         id: vps
         if: steps.sitio.outputs.responde == 'no' || steps.sitio.outputs.diaria == 'si' || github.event_name == 'workflow_dispatch'
         env:
-          TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+          TOKEN: ${{ secrets.MONITOREO_AONI }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::error::Falta el secreto HOSTINGER_API_TOKEN en este repositorio."
+            echo "::error::Falta el secreto MONITOREO_AONI en este repositorio."
             exit 1
           fi
           respuesta=$(curl -sf -m 30 -H "Authorization: Bearer $TOKEN" "$API/$VPS_ID") || {
@@ -70,7 +70,7 @@ jobs:
       - name: Encenderlo si Hostinger lo dejó apagado
         if: steps.sitio.outputs.responde == 'no' && steps.vps.outputs.estado == 'stopped'
         env:
-          TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+          TOKEN: ${{ secrets.MONITOREO_AONI }}
         run: |
           curl -sf -m 30 -X POST -H "Authorization: Bearer $TOKEN" "$API/$VPS_ID/start" > /dev/null || {
             echo "::error::El VPS está apagado y Hostinger no aceptó encenderlo."
