@@ -36,10 +36,27 @@ jobs:
     steps:
       - name: ¿Responde el sitio?
         id: sitio
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Una vez por día (12:00 UTC, las 9 de Argentina) se consulta el estado del VPS aunque
-          # el sitio ande: si el token venció, la corrida falla y GitHub avisa ese mismo día.
-          if [ "$(date -u +%H)" = "12" ] && [ "$(date -u +%M)" -lt 5 ]; then echo "diaria=si" >> "$GITHUB_OUTPUT"; fi
+          # Una vez por día se consulta el estado del VPS aunque el sitio ande: si el token venció,
+          # la corrida falla y GitHub avisa ese mismo día.
+          #
+          # SIN VENTANA DE 5 MINUTOS (22/11/2026). GitHub no corre el horario cada 5 minutos sino
+          # cuando puede (3 a 5 veces por día en noviembre), así que la ventana 12:00-12:04 UTC no
+          # se pisó nunca: ni la consulta diaria ni «Mantener vivo el horario» corrieron desde el
+          # 19/10. Ahora la diaria es la PRIMERA corrida del día después de las 12 UTC (las 9 de
+          # Argentina): la anterior empezó antes de esa hora. Si no se puede preguntar, se consulta
+          # igual: mirar de más no rompe nada; de menos, sí.
+          ahora=$(date -u +%s)
+          hoy12=$(date -u -d "today 12:00" +%s)
+          if [ "$ahora" -ge "$hoy12" ]; then
+            anterior=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/vigia.yml/runs?event=schedule&per_page=2" --jq '.workflow_runs[1].run_started_at // empty' 2>/dev/null || true)
+            if [ -z "$anterior" ] || [ "$(date -u -d "$anterior" +%s)" -lt "$hoy12" ]; then
+              echo "diaria=si" >> "$GITHUB_OUTPUT"
+              echo "Primera corrida del día después de las 12 UTC: consulta diaria."
+            fi
+          fi
           for intento in 1 2 3; do
             codigo=$(curl -s -o /dev/null -m 20 -w '%{http_code}' "$SITIO" || true)
             if [ "$codigo" = "200" ]; then
@@ -84,18 +101,20 @@ jobs:
           echo "::error::El VPS estaba apagado y se pidió encenderlo. La web vuelve en un par de minutos."
           exit 1
 
+      # Falla a propósito (22/11/2026): con un aviso amarillo la corrida terminaba en verde y GitHub
+      # no mandaba ningún correo. El 23/10 el servidor quedó colgado encendido y nadie se enteró.
       - name: El sitio no responde, pero el VPS no está apagado
         if: steps.sitio.outputs.responde == 'no' && steps.vps.outputs.estado != 'stopped' && steps.vps.outputs.estado != ''
         run: |
-          echo "::warning::El sitio no responde y el VPS está «${{ steps.vps.outputs.estado }}»: no se toca nada (puede ser un despliegue en curso o un problema adentro)."
+          echo "::error::El sitio no responde y el VPS está «${{ steps.vps.outputs.estado }}»: no se toca nada (puede ser un despliegue en curso o un problema adentro). Hay que mirarlo."
+          exit 1
 
       # GitHub apaga los horarios de un repositorio sin cambios en 60 días. Una vez por
-      # día se vuelve a habilitar el horario por la API, que reinicia esa cuenta.
+      # día (con la consulta diaria) se vuelve a habilitar el horario por la API, que
+      # reinicia esa cuenta. `always()`: aunque un paso anterior haya fallado a propósito.
       - name: Mantener vivo el horario
-        if: github.event_name == 'schedule'
+        if: always() && github.event_name == 'schedule' && steps.sitio.outputs.diaria == 'si'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$(date -u +%H)" = "12" ] && [ "$(date -u +%M)" -lt 5 ]; then
-            gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/vigia.yml/enable" && echo "Horario renovado."
-          fi
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/vigia.yml/enable" && echo "Horario renovado."

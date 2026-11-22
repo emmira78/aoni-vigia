@@ -19,7 +19,9 @@ Si el VPS figura encendido o suspendido, no toca nada: ahí el problema es otro,
 Un secreto del repositorio llamado `MONITOREO_AONI`, con un token de la API de Hostinger (hPanel → API).
 
 - Los secretos van cifrados y no aparecen nunca en el código ni en los registros.
-- Una vez por día, a las 9 de Argentina, el vigía consulta el estado del VPS aunque el sitio ande. Si el token venció o se borró, esa corrida falla y GitHub manda un correo ese mismo día.
+- Una vez por día, en la primera corrida después de las 9 de Argentina, el vigía consulta el estado del VPS aunque el sitio ande. Si el token venció o se borró, esa corrida falla y GitHub manda un correo ese mismo día.
+- GitHub no corre el horario cada 5 minutos: en noviembre de 2026 lo corrió de 3 a 5 veces por día. Por eso el vigía **no es un monitor de caídas**: enciende el VPS si Hostinger lo deja apagado, y nada más. Para enterarse de una caída o de una demora hace falta un monitor de afuera (UptimeRobot o parecido) con aviso al teléfono.
+- Si el sitio no responde y el VPS figura encendido, la corrida termina en rojo (desde el 22/11/2026): así GitHub manda un correo. Antes dejaba un aviso amarillo y nadie se enteraba.
 
 ## Probarlo
 
